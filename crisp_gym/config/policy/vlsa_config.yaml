@@ -44,8 +44,8 @@ safety:
   # would. Narrow it once you've confirmed detection is landing in the right place.
   xyz_bounds: [[0.0, 0.8], [-0.5, 0.5], [0.0, 1.0]]
   # xyz_bounds: [[-1.5, 1.5], [-1.5, 1.5], [-1.0, 2.0]]
-  groundingdino_config_path: "/home/cbrian/vlsa/vlsa-aegis/GroundingDINO/GroundingDINO_SwinT_OGC.py"
-  groundingdino_checkpoint_path: "/home/cbrian/vlsa/vlsa-aegis/GroundingDINO/groundingdino_swint_ogc.pth"
+  groundingdino_config_path: "GroundingDINO/GroundingDINO_SwinT_OGC.py"
+  groundingdino_checkpoint_path: "GroundingDINO/groundingdino_swint_ogc.pth"
 
   #-----------------------------TASK 1----------------------------------------
   # obstacle_preference_list: ["yellow-purple gradient cans stand on white can"]

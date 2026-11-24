@@ -109,6 +109,19 @@ open3d = "*"
 groundingdino-py = "*"
 zai-sdk = "*"
 
+[feature.aegis.tasks]
+# One-time setup for safety.mode="point_cloud": groundingdino-py (above) ships the model code
+# plus a bundled copy of this same config .py, but NOT the ~694MB pretrained checkpoint, which
+# isn't a pypi dependency at all -- this task copies the former and downloads the latter into
+# GroundingDINO/ (repo root, sibling to models/), matching vlsa_config.yaml's
+# groundingdino_config_path/groundingdino_checkpoint_path. Run once per clone with
+# `pixi run -e jazzy-pi05-aegis download-groundingdino` (or jazzy-groot-aegis) from repo root.
+download-groundingdino = { cmd = """
+mkdir -p GroundingDINO && \
+python -c "import groundingdino, shutil, os; shutil.copy(os.path.join(os.path.dirname(groundingdino.__file__), 'config', 'GroundingDINO_SwinT_OGC.py'), 'GroundingDINO/GroundingDINO_SwinT_OGC.py')" && \
+test -f GroundingDINO/groundingdino_swint_ogc.pth || wget -O GroundingDINO/groundingdino_swint_ogc.pth https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth
+""" }
+
 # --- GLOBAL PYPI DEPS ---
 [pypi-dependencies]
 crisp_gym = { path = ".", editable = true }
