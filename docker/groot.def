@@ -1,0 +1,114 @@
+Bootstrap: docker
+From: nvidia/cuda:12.4.1-devel-ubuntu22.04
+# "devel" (not "base") is required: flash-attn needs nvcc to build.
+
+# Build from the repo root:
+#   sudo apptainer build groot.sif docker/groot.def
+# Run (starts the tokenizer patcher, then a shell):
+#   apptainer run --nv groot.sif
+#   apptainer run --nv groot.sif python your_script.py
+
+%arguments
+    # Replicating the ARG variables from Docker
+    PYTHON_VERSION=3.12
+
+%environment
+    # Configure environment variables for runtime
+    export DEBIAN_FRONTEND=noninteractive
+    export MUJOCO_GL=egl
+    export PATH=/lerobot/.venv/bin:$PATH
+    export VIRTUAL_ENV=/lerobot/.venv
+    export CUDA_VISIBLE_DEVICES=0
+    export TEST_TYPE=single_gpu
+    export DEVICE=cuda
+
+    # User environment paths (Apptainer maps your host $HOME by default,
+    # so we explicitly direct caches to this folder)
+    export HOME=/home/user_lerobot
+    export HF_HOME=/home/user_lerobot/.cache/huggingface
+    export HF_LEROBOT_HOME=/home/user_lerobot/.cache/huggingface/lerobot
+    export TORCH_HOME=/home/user_lerobot/.cache/torch
+    export TRITON_CACHE_DIR=/home/user_lerobot/.cache/triton
+
+%setup
+    # Runs on the host: copy the build directory into the image
+    # Equivalent to "COPY . ."
+    mkdir -p ${APPTAINER_ROOTFS}/lerobot
+    cp -R . ${APPTAINER_ROOTFS}/lerobot/
+
+%files
+    # Path is relative to the directory you run "apptainer build" from (repo root)
+    docker/patch_tokenizer.py /opt/patch_tokenizer.py
+
+%post
+    # Bind arguments to variables for use in this script
+    PYTHON_VERSION={{ PYTHON_VERSION }}
+
+    # Install packages non-interactively and preset the timezone
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Etc/UTC
+
+    # Install Python, system dependencies, and uv
+    apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common build-essential git curl \
+        libglib2.0-0 libgl1-mesa-glx libegl1-mesa \
+        libusb-1.0-0-dev speech-dispatcher libgeos-dev portaudio19-dev \
+        cmake pkg-config ninja-build
+
+    add-apt-repository -y ppa:deadsnakes/ppa
+    add-apt-repository -y ppa:ubuntuhandbook1/ffmpeg7
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-venv \
+        python${PYTHON_VERSION}-dev
+
+    # Install uv and move to global path
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    mv /root/.local/bin/uv /usr/local/bin/uv
+
+    # Mimic the home directory structure required by the configuration
+    mkdir -p /home/user_lerobot/.cache
+
+    cd /lerobot
+
+    # Create the virtual environment and point uv at it
+    rm -rf /lerobot/.venv
+    /usr/local/bin/uv venv --python python${PYTHON_VERSION} /lerobot/.venv
+    export VIRTUAL_ENV=/lerobot/.venv
+    export PATH=/lerobot/.venv/bin:$PATH
+
+    # 1. Torch & Torchvision first (CUDA 12.x)
+    uv pip install --no-cache \
+        "torch>=2.2.1,<2.8.0" \
+        "torchvision>=0.21.0,<0.23.0"
+
+    uv pip install --no-cache --force-reinstall "torchcodec==0.5.0"
+
+    # 2. Flash Attention build dependencies
+    uv pip install --no-cache ninja "packaging>=24.2,<26.0"
+
+    # 3. Flash Attention (may take 10+ minutes; MAX_JOBS limits RAM usage)
+    MAX_JOBS=4 uv pip install "flash-attn==2.8.3" --no-build-isolation
+
+    # 4. LeRobot with GR00T extras
+    uv pip install --no-cache "lerobot[groot] @ git+https://github.com/huggingface/lerobot@v0.4.4"
+
+    # Fix permissions on ptxas
+    find /lerobot/.venv -name ptxas -exec chmod +x {} +
+
+    chmod +x /opt/patch_tokenizer.py
+
+    # Cleanup to shrink image size
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+%runscript
+    # Equivalent to ENTRYPOINT (patcher in background) + CMD ["/bin/bash"]
+    python /opt/patch_tokenizer.py &
+    if [ $# -eq 0 ]; then
+        exec /bin/bash
+    else
+        exec "$@"
+    fi
